@@ -5,25 +5,25 @@ import argparse
 from contextlib import redirect_stdout
 
 os.environ["KERAS_BACKEND"] = "tensorflow"
-
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-from keras.layers import Input, Convolution2D, Activation, BatchNormalization, add
-from keras.callbacks import ModelCheckpoint, Callback
-from keras.models import Model, model_from_json
-from keras.optimizers import Adam
-from keras.utils.visualize_util import plot as kerasPlot
 import tensorflow as tf
-import keras.backend.tensorflow_backend as ktf
+from tensorflow.keras.layers import Input, Conv2D, Activation, BatchNormalization, Add
+from tensorflow.keras.callbacks import ModelCheckpoint, Callback
+from tensorflow.keras.models import Model, model_from_json
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.utils import plot_model
 
 class LossHistory(Callback):
     def __init__(self, root, losses):
         self.root = root        
         self.losses = losses
 
-    def on_epoch_end(self, batch, logs={}):
+    def on_epoch_end(self, epoch, logs=None):
+        if logs is None:
+            logs = {}
         self.losses.append(logs)
-        with open("{0}_loss.json".format(self.root), 'w') as f:
+        with open(f"{self.root}_loss.json", 'w') as f:
             json.dump(self.losses, f)
 
     def finalize(self):
@@ -32,14 +32,14 @@ class LossHistory(Callback):
 class train_deepvel(object):
 
     def __init__(self, root, noise, option):
-        """
-        """
-
-# Only allocate needed memory
-        config = tf.ConfigProto()
-        config.gpu_options.allow_growth=True
-        session = tf.Session(config=config)
-        ktf.set_session(session)
+        # GPU memory growth
+        physical_devices = tf.config.list_physical_devices('GPU')
+        if physical_devices:
+            try:
+                for device in physical_devices:
+                    tf.config.experimental.set_memory_growth(device, True)
+            except:
+                pass
 
         self.root = root
         self.option = option
@@ -49,149 +49,139 @@ class train_deepvel(object):
         self.batch_size = 32
         self.n_conv_layers = 20
         
-        self.input_file_images_training = "/scratch1/aasensio/deepLearning/opticalFlow/database/database_images.h5"
-        self.input_file_velocity_training = "/scratch1/aasensio/deepLearning/opticalFlow/database/database_velocity.h5"
+        self.input_file_images_training = " "
+        self.input_file_velocity_training = " "
 
-        self.input_file_images_validation = "/scratch1/aasensio/deepLearning/opticalFlow/database/database_images_validation.h5"
-        self.input_file_velocity_validation = "/scratch1/aasensio/deepLearning/opticalFlow/database/database_velocity_validation.h5"
+        self.input_file_images_validation = " "
+        self.input_file_velocity_validation = " "
 
-        f = h5py.File(self.input_file_images_training, 'r')
-        self.n_training_orig, self.nx, self.ny, self.n_times = f.get("intensity").shape        
-        f.close()
+        with h5py.File(self.input_file_images_training, 'r') as f:
+            self.n_training_orig, self.nx, self.ny, self.n_times = f["intensity"].shape
 
-        f = h5py.File(self.input_file_images_validation, 'r')
-        self.n_validation_orig, _, _, _ = f.get("intensity").shape        
-        f.close()
+        with h5py.File(self.input_file_images_validation, 'r') as f:
+            self.n_validation_orig, _, _, _ = f["intensity"].shape
         
-        self.batchs_per_epoch_training = int(self.n_training_orig / self.batch_size)
-        self.batchs_per_epoch_validation = int(self.n_validation_orig / self.batch_size)
+        self.batchs_per_epoch_training = self.n_training_orig // self.batch_size
+        self.batchs_per_epoch_validation = self.n_validation_orig // self.batch_size
 
         self.n_training = self.batchs_per_epoch_training * self.batch_size
         self.n_validation = self.batchs_per_epoch_validation * self.batch_size
 
-        print("Original training set size: {0}".format(self.n_training_orig))
-        print("   - Final training set size: {0}".format(self.n_training))
-        print("   - Batch size: {0}".format(self.batch_size))
-        print("   - Batches per epoch: {0}".format(self.batchs_per_epoch_training))
+        print(f"Original training set size: {self.n_training_orig}")
+        print(f"   - Final training set size: {self.n_training}")
+        print(f"   - Batch size: {self.batch_size}")
+        print(f"   - Batches per epoch: {self.batchs_per_epoch_training}")
 
-        print("Original validation set size: {0}".format(self.n_validation_orig))
-        print("   - Final validation set size: {0}".format(self.n_validation))
-        print("   - Batch size: {0}".format(self.batch_size))
-        print("   - Batches per epoch: {0}".format(self.batchs_per_epoch_validation))
+        print(f"Original validation set size: {self.n_validation_orig}")
+        print(f"   - Final validation set size: {self.n_validation}")
+        print(f"   - Batch size: {self.batch_size}")
+        print(f"   - Batches per epoch: {self.batchs_per_epoch_validation}")
 
     def training_generator(self):
-        f_images = h5py.File(self.input_file_images_training, 'r')
-        images = f_images.get("intensity")
+        with h5py.File(self.input_file_images_training, 'r') as f_images, \
+             h5py.File(self.input_file_velocity_training, 'r') as f_velocity:
 
-        f_velocity = h5py.File(self.input_file_velocity_training, 'r')
-        velocity = f_velocity.get("velocity")
+            images = f_images["intensity"]
+            velocity = f_velocity["velocity"]
 
-        while 1:        
-            for i in range(self.batchs_per_epoch_training):
-
-                input_train = images[i*self.batch_size:(i+1)*self.batch_size,:,:,:].astype('float32')
-                output_train = velocity[i*self.batch_size:(i+1)*self.batch_size,:,:,:].astype('float32')
-
-                yield input_train, output_train
-
-        f_images.close()
-        f_velocity.close()
+            while True:
+                for i in range(self.batchs_per_epoch_training):
+                    input_train = images[i*self.batch_size:(i+1)*self.batch_size].astype('float32')
+                    output_train = velocity[i*self.batch_size:(i+1)*self.batch_size].astype('float32')
+                    yield input_train, output_train
 
     def validation_generator(self):
-        f_images = h5py.File(self.input_file_images_validation, 'r')
-        images = f_images.get("intensity")
+        with h5py.File(self.input_file_images_validation, 'r') as f_images, \
+             h5py.File(self.input_file_velocity_validation, 'r') as f_velocity:
 
-        f_velocity = h5py.File(self.input_file_velocity_validation, 'r')
-        velocity = f_velocity.get("velocity")
-        
-        while 1:        
-            for i in range(self.batchs_per_epoch_validation):
+            images = f_images["intensity"]
+            velocity = f_velocity["velocity"]
 
-                input_validation = images[i*self.batch_size:(i+1)*self.batch_size,:,:,:].astype('float32')
-                output_validation = velocity[i*self.batch_size:(i+1)*self.batch_size,:,:,:].astype('float32')
-
-                yield input_validation, output_validation
-
-        f_images.close()
-        f_velocity.close()
+            while True:
+                for i in range(self.batchs_per_epoch_validation):
+                    input_val = images[i*self.batch_size:(i+1)*self.batch_size].astype('float32')
+                    output_val = velocity[i*self.batch_size:(i+1)*self.batch_size].astype('float32')
+                    yield input_val, output_val
 
     def residual(self, inputs):
-        x = Convolution2D(self.n_filters, (3, 3), padding='same', kernel_initializer='he_normal')(inputs)
+        x = Conv2D(self.n_filters, (3, 3), padding='same', kernel_initializer='he_normal')(inputs)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
-        x = Convolution2D(self.n_filters, (3, 3), padding='same', kernel_initializer='he_normal')(x)
+        x = Conv2D(self.n_filters, (3, 3), padding='same', kernel_initializer='he_normal')(x)
         x = BatchNormalization()(x)
-        x = add([x, inputs])
-
+        x = Add()([x, inputs])
         return x
-            
+
     def define_network(self):
         print("Setting up network...")
 
         inputs = Input(shape=(self.nx, self.ny, self.n_times))
-        conv = Convolution2D(self.n_filters, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal')(inputs)
+        conv = Conv2D(self.n_filters, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal')(inputs)
 
         x = self.residual(conv)
-        for i in range(self.n_conv_layers):
+        for _ in range(self.n_conv_layers):
             x = self.residual(x)
 
-        x = Convolution2D(self.n_filters, (3, 3), padding='same', kernel_initializer='he_normal')(x)
+        x = Conv2D(self.n_filters, (3, 3), padding='same', kernel_initializer='he_normal')(x)
         x = BatchNormalization()(x)
-        x = add([x, conv])
+        x = Add()([x, conv])
 
-        final = Convolution2D(6, (1, 1), activation='linear', padding='same', kernel_initializer='he_normal')(x)
+        final = Conv2D(6, (1, 1), activation='linear', padding='same', kernel_initializer='he_normal')(x)
 
         self.model = Model(inputs=inputs, outputs=final)
-                
-        json_string = self.model.to_json()
-        f = open('{0}_model.json'.format(self.root), 'w')
-        f.write(json_string)
-        f.close()
 
-        with open('{0}_summary.txt'.format(self.root), 'w') as f:
+        # Save model architecture
+        with open(f'{self.root}_model.json', 'w') as f:
+            f.write(self.model.to_json())
+
+        with open(f'{self.root}_summary.txt', 'w') as f:
             with redirect_stdout(f):
                 self.model.summary()
 
-        kerasPlot(self.model, to_file='{0}_model.png'.format(self.root), show_shapes=True)
+        plot_model(self.model, to_file=f'{self.root}_model.png', show_shapes=True)
 
-    def compile_network(self):        
-        self.model.compile(loss='mse', optimizer=Adam(lr=1e-4))
-        
+    def compile_network(self):
+        self.model.compile(loss='mse', optimizer=Adam(learning_rate=1e-4))
+
     def read_network(self):
         print("Reading previous network...")
-                
-        f = open('{0}_model.json'.format(self.root), 'r')
-        json_string = f.read()
-        f.close()
+        with open(f'{self.root}_model.json', 'r') as f:
+            json_string = f.read()
 
         self.model = model_from_json(json_string)
-        self.model.load_weights("{0}_weights.hdf5".format(self.root))
+        self.model.load_weights(f"{self.root}_weights.hdf5")
 
     def train(self, n_iterations):
-        print("Training network...")        
-        
-# Recover losses from previous run
-        if (self.option == 'continue'):
-            with open("{0}_loss.json".format(self.root), 'r') as f:
+        print("Training network...")
+
+        # Load previous loss history if continuing
+        if self.option == 'continue':
+            with open(f"{self.root}_loss.json", 'r') as f:
                 losses = json.load(f)
         else:
             losses = []
 
-        self.checkpointer = ModelCheckpoint(filepath="{0}_weights.hdf5".format(self.root), verbose=1, save_best_only=True)
+        self.checkpointer = ModelCheckpoint(filepath=f"{self.root}_weights.hdf5", verbose=1, save_best_only=True)
         self.history = LossHistory(self.root, losses)
-        
-        self.metrics = self.model.fit_generator(self.training_generator(), self.n_training, nb_epoch=n_iterations, 
-            callbacks=[self.checkpointer, self.history], validation_data=self.validation_generator(), nb_val_samples=self.n_validation)
-        
+
+        self.model.fit(
+            self.training_generator(),
+            steps_per_epoch=self.batchs_per_epoch_training,
+            epochs=n_iterations,
+            callbacks=[self.checkpointer, self.history],
+            validation_data=self.validation_generator(),
+            validation_steps=self.batchs_per_epoch_validation
+        )
+
         self.history.finalize()
 
-if (__name__ == '__main__'):
 
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train DeepVel')
-    parser.add_argument('-o','--out', help='Output files')
-    parser.add_argument('-e','--epochs', help='Number of epochs', default=10)
-    parser.add_argument('-n','--noise', help='Noise to add during training', default=0.0)
-    parser.add_argument('-a','--action', help='Action', choices=['start', 'continue'], required=True)
+    parser.add_argument('-o', '--out', help='Output files')
+    parser.add_argument('-e', '--epochs', help='Number of epochs', default=10)
+    parser.add_argument('-n', '--noise', help='Noise to add during training', default=0.0)
+    parser.add_argument('-a', '--action', help='Action', choices=['start', 'continue'], required=True)
     parsed = vars(parser.parse_args())
 
     root = parsed['out']
@@ -201,12 +191,12 @@ if (__name__ == '__main__'):
 
     out = train_deepvel(root, noise, option)
 
-    if (option == 'start'):           
+    if option == 'start':           
         out.define_network()        
         
-    if (option == 'continue'):
+    if option == 'continue':
         out.read_network()
 
-    if (option == 'start' or option == 'continue'):
+    if option in ['start', 'continue']:
         out.compile_network()
         out.train(nEpochs)
