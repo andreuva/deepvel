@@ -123,4 +123,5 @@ if __name__ == '__main__':
 
     out = deepvel(imgs, parsed['out'], border=int(parsed['border']))
     out.define_network()
+    print(out.model.summary())
     out.predict()
