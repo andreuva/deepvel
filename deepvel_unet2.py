@@ -403,17 +403,16 @@ if __name__ == '__main__':
         input_channels=in_channels, 
         output_channels=2, 
         n_latent_chanels=16,
-        chanels_multiples=(1, 2, 4),
-        is_attn_encoder=(False, False, False),
-        is_attn_decoder=(True, True, True),
+        chanels_multiples=(1, 2, 2, 4),
+        is_attn_encoder=(False, False, False , False),
+        is_attn_decoder=(True, True, True, True),
         n_blocks=2,
         time_emb_dim=time_dim,
         padding_mode='zeros',
         bilinear=False
     )
-    
-    print(model)
+
     out = model(x_in, t)
-    print("Output shape:", out.shape)
-    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print("Trainable parameters:", total_params)
+
+    from torchinfo import summary
+    summary(model, input_data=(x_in, t))
