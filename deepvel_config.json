@@ -1,0 +1,30 @@
+{
+  "model": {
+    "bilinear": false,
+    "n_blocks": 3,
+    "padding_mode": "zeros",
+    "time_emb_dim": 16,
+    "input_channels": 3,
+    "chanels_multiples": [1, 2, 3, 4],
+    "is_attn_encoder": [false, false, false, false],
+    "is_attn_decoder": [true, true, true, true],
+    "output_channels": 2,
+    "n_latent_chanels": 64
+  },
+  "dataset": {
+    "aug": "None",
+    "seed": 777,
+    "data_path": "data",
+    "batch_size": 16,
+    "patch_size": 128,
+    "num_workers": 16
+  },
+  "training": {
+    "used_gpu": 1,
+    "save_path": "checkpoints_bigpatch",
+    "save_model_every": 200,
+    "num_epochs": 5000,
+    "learning_rate": 0.001,
+    "steps_per_epoch": 1000
+  }
+}

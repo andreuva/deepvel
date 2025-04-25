@@ -135,7 +135,7 @@ class CrossAttentionBlock(nn.Module):
 ### Residual Block with time-conditioning
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, time_emb_dim: int,
-                 n_groups: int = 16, dropout: float = 0.1, padding_mode: str = 'zeros'):
+                 n_groups: int = 2, dropout: float = 0.0, padding_mode: str = 'zeros'):
         super().__init__()
         self.norm1 = nn.GroupNorm(n_groups, in_channels)
         self.act1 = nn.SiLU()
@@ -395,7 +395,7 @@ if __name__ == '__main__':
     batch_size = 2
     in_channels = 2   # Three-channel input image (or consecutive frames, etc.)
     h_size, w_size = 64, 64
-    time_dim = 32     # Expecting a time tensor of shape [B, in_channels]
+    time_dim = 16     # Expecting a time tensor of shape [B, in_channels]
     x_in = torch.zeros(batch_size, in_channels, h_size, w_size)
     t = torch.zeros(batch_size, in_channels)  # Dummy time input
     
@@ -415,4 +415,15 @@ if __name__ == '__main__':
     out = model(x_in, t)
 
     from torchinfo import summary
-    summary(model, input_data=(x_in, t))
+    summary(model,
+            input_data=(x_in, t),
+            col_names=(                
+                "input_size",
+                "output_size",
+                "num_params",
+                "kernel_size",
+                "trainable"
+                ),
+            col_width=20,
+            depth=8
+            )
